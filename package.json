@@ -1,0 +1,24 @@
+{
+  "name": "my-cypress-showroom",
+  "version": "1.0.0",
+  "description": "Showroom repository demonstrating a clean, fully-commented Cypress smoke suite augmented with AI (cy.prompt + a LangGraph agent) on the Cypress Real World App.",
+  "license": "MIT",
+  "author": "Khalid Hafid-Medheb",
+  "scripts": {
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run",
+    "cypress:run:smoke": "cypress run --spec \"cypress/e2e/smoke/**/*.cy.ts\"",
+    "cypress:run:regression": "cypress run --spec \"cypress/e2e/regression/**/*.cy.ts\"",
+    "cypress:run:api": "cypress run --spec \"cypress/e2e/api/**/*.cy.ts\"",
+    "cypress:run:ai": "cypress run --spec \"cypress/e2e/ai-driven/**/*.cy.ts\"",
+    "lint": "eslint cypress"
+  },
+  "devDependencies": {
+    "cypress": "^14.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-cypress": "^3.5.0",
+    "wait-on": "^7.2.0"
+  }
+}

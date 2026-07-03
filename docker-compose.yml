@@ -1,0 +1,198 @@
+# -----------------------------------------------------------------------------
+# docker-compose.yml — full local/CI stack for my-cypress-showroom
+# -----------------------------------------------------------------------------
+# Services are grouped with "profiles" so you only start what you need:
+#
+#   docker compose up -d app redis         # just the app + its cache, for manual exploring
+#   docker compose run --rm cypress-smoke  # smoke suite only (default profile, always available)
+#   docker compose --profile regression run --rm cypress-regression
+#   docker compose --profile api run --rm cypress-api
+#   docker compose --profile unit run --rm unit-tests
+#   docker compose --profile lint run --rm linter
+#   docker compose --profile ai run --rm ai-agent --feature cypress/features/auth.feature
+#
+# "app" and "redis" have no profile: they are the shared baseline every
+# other service depends on, so they start with a plain `docker compose up`.
+# -----------------------------------------------------------------------------
+
+services:
+  # ===========================================================================
+  # Application under test — Cypress Real World App (React frontend + Express API)
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: docker/app-under-test.Dockerfile
+    ports:
+      - "3000:3000" # Frontend (Vite dev server)
+      - "3001:3001" # Backend API (Express)
+    environment:
+      - REDIS_URL=redis://redis:6379 # Wired for parity with production-like caching setups (see redis service below)
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - showroom-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Redis — in-memory data store, used here for two concrete purposes:
+  #
+  #   1) CACHING / RATE-LIMIT LAYER for the app under test: many real-world
+  #      production apps put a Redis cache in front of session lookups and
+  #      API rate-limiting. Wiring it here lets the smoke/regression suites
+  #      exercise the app in a topology closer to production than the
+  #      "single Node process + local JSON file" default setup.
+  #
+  #   2) LLM RESPONSE CACHE for the LangGraph agent (ai-agent/cache.py):
+  #      identical Gherkin scenarios are not re-sent to Claude on every
+  #      self-healing retry — the agent checks Redis first, which cuts both
+  #      token cost and latency. See ai-agent/cache.py for the implementation.
+  #
+  # Redis is NOT a hard requirement of the vanilla Real World App itself
+  # (it ships with lowdb, a local JSON file) — it is included deliberately
+  # to demonstrate testing against a more realistic, stateful architecture.
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # Linter — static analysis for both the TypeScript suite and the Python agent
+  # ===========================================================================
+  linter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["npm", "run", "lint"]
+    profiles: ["lint"]
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # Smoke tests — fast, critical-path checks. The first line of defense,
+  # meant to run on every push (see .github/workflows/ci.yml).
+  # ===========================================================================
+  cypress-smoke:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://app:3000
+      - CYPRESS_apiUrl=http://app:3001
+    entrypoint: ["npx", "cypress", "run", "--spec", "cypress/e2e/smoke/**/*.cy.ts"]
+    volumes:
+      - ./cypress/videos:/app/cypress/videos
+      - ./cypress/screenshots:/app/cypress/screenshots
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # Regression tests — broader, slower coverage. Not part of the fast
+  # per-push gate; intended for nightly or manually-triggered CI runs.
+  # ===========================================================================
+  cypress-regression:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://app:3000
+      - CYPRESS_apiUrl=http://app:3001
+    entrypoint: ["npx", "cypress", "run", "--spec", "cypress/e2e/regression/**/*.cy.ts"]
+    profiles: ["regression"]
+    volumes:
+      - ./cypress/videos:/app/cypress/videos
+      - ./cypress/screenshots:/app/cypress/screenshots
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # API tests — contract-level checks via cy.request, no browser/UI involved.
+  # Faster and more stable than UI tests; good early signal in the pipeline.
+  # ===========================================================================
+  cypress-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - CYPRESS_apiUrl=http://app:3001
+    entrypoint: ["npx", "cypress", "run", "--spec", "cypress/e2e/api/**/*.cy.ts"]
+    profiles: ["api"]
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # cy.prompt tests — AI-driven natural-language actions. Isolated behind a
+  # profile so the rest of the stack works without a Cypress AI key.
+  # ===========================================================================
+  cypress-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://app:3000
+      - CYPRESS_apiUrl=http://app:3001
+      - CYPRESS_AI_KEY=${CYPRESS_AI_KEY}
+    entrypoint: ["npx", "cypress", "run", "--spec", "cypress/e2e/ai-driven/**/*.cy.ts"]
+    profiles: ["ai-tests"]
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # Unit tests — pytest suite for the LangGraph agent's individual nodes.
+  # No browser, no app dependency: pure, fast function-level tests.
+  # ===========================================================================
+  unit-tests:
+    build:
+      context: .
+      dockerfile: ai-agent/Dockerfile
+    entrypoint: ["sh", "-c", "pip install --no-cache-dir -r requirements-dev.txt && pytest -v tests/"]
+    profiles: ["unit"]
+    networks:
+      - showroom-net
+
+  # ===========================================================================
+  # AI agent — on-demand Gherkin-to-Cypress spec generator with self-healing.
+  # Usage: docker compose --profile ai run --rm ai-agent --feature cypress/features/auth.feature
+  # ===========================================================================
+  ai-agent:
+    build:
+      context: .
+      dockerfile: ai-agent/Dockerfile
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["ai"]
+    networks:
+      - showroom-net
+
+networks:
+  showroom-net:
+    driver: bridge

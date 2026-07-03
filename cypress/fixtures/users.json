@@ -1,0 +1,20 @@
+{
+  "validUser": {
+    "username": "PainterJoy90",
+    "password": "s3cret"
+  },
+  "secondaryUser": {
+    "username": "DevonBecker",
+    "password": "s3cret"
+  },
+  "invalidUser": {
+    "username": "PainterJoy90",
+    "password": "wrongPassword123"
+  },
+  "newUser": {
+    "firstName": "Jordan",
+    "lastName": "Rivera",
+    "username": "jordan.rivera",
+    "password": "S3curePass!2026"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "paymentRequest": {
+    "amount": "35",
+    "description": "Dinner split"
+  },
+  "payment": {
+    "amount": "20",
+    "description": "Coffee refund"
+  },
+  "bankAccount": {
+    "bankName": "The Best Bank",
+    "routingNumber": "123456789",
+    "accountNumber": "987654321"
+  }
+}

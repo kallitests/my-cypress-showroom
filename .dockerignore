@@ -1,0 +1,27 @@
+# Keeps the Docker build context small and layer caching effective.
+# Applies to every Dockerfile in this repo (all use the repo root as context).
+
+# Dependencies (reinstalled inside the image; never copy the host's own)
+node_modules/
+ai-agent/__pycache__/
+ai-agent/**/__pycache__/
+ai-agent/.venv/
+**/*.pyc
+
+# Test artifacts (generated at runtime, not needed to build the image)
+cypress/videos/
+cypress/screenshots/
+cypress/reports/
+cypress/e2e/generated/
+
+# Version control and CI metadata
+.git/
+.github/
+
+# Secrets — never bake credentials into an image layer
+.env
+
+# Docs and misc (not needed at runtime)
+*.md
+LICENSE
+.DS_Store
